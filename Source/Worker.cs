@@ -239,7 +239,7 @@ namespace GuessBitcoinKey
         {
             AddressType type;
 
-            if (index !=  -1)
+            if (index != -1)
             {
                 type = addressTypes[index];
                 type.Threads++;
