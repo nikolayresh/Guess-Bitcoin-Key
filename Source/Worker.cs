@@ -215,27 +215,27 @@ namespace GuessBitcoinKey
                 Threads = (int) Math.Floor(Environment.ProcessorCount * ((double) GetWalletsCount(type) / wallets))
             }).ToList();
 
-            int remThreads = Environment.ProcessorCount - addressTypes.Sum(x => x.Threads);
-            while (remThreads-- != 0)
+            int remainder = Environment.ProcessorCount - addressTypes.Sum(x => x.Threads);
+            while (remainder-- != 0)
             {
-                HandlePriorityTypes(addressTypes);
+                HandlePriorityThreads(addressTypes);
             }
 
-            int iTask = 0;
+            int iType = 0;
             addressTypes.ForEach(x =>
             {
                 for (int i = 0; i < x.Threads; i++)
                 {
                     Task task = new(ResolveThreadAction(x.Type), TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness);
-                    _tasks[iTask + i] = task;
+                    _tasks[iType + i] = task;
                     task.Start();
                 }
 
-                iTask += x.Threads;
+                iType += x.Threads;
             });
         }
 
-        private static void HandlePriorityTypes(IReadOnlyList<AddressType> addressTypes, int? index = null)
+        private static void HandlePriorityThreads(IReadOnlyList<AddressType> addressTypes, int? index = null)
         {
             AddressType type;
 
@@ -247,6 +247,7 @@ namespace GuessBitcoinKey
             }
 
             type = addressTypes.SingleOrDefault(x => x.Type == PriorityType);
+
             if (type != null)
             {
                 type.Threads++;
@@ -254,7 +255,7 @@ namespace GuessBitcoinKey
             }
 
             // recursive call with random index
-            HandlePriorityTypes(addressTypes, RandomNumberGenerator.GetInt32(0, addressTypes.Count));
+            HandlePriorityThreads(addressTypes, RandomNumberGenerator.GetInt32(0, addressTypes.Count));
         }
 
         private int GetWalletsCount(ScriptPubKeyType type)
@@ -369,7 +370,7 @@ namespace GuessBitcoinKey
                    sw.WriteLine($">>> WIF (Main): {key.GetBitcoinSecret(Network.Main).ToWif()}");
                    sw.WriteLine($">>> WIF (TestNet): {key.GetBitcoinSecret(Network.TestNet).ToWif()}");
                    sw.WriteLine($">>> WIF (RegTest): {key.GetBitcoinSecret(Network.RegTest).ToWif()}");
-                sw.WriteLine($"Mnemonic: {mnemonic}");
+                sw.WriteLine($"Mnemonic words: [{mnemonic}]");
                 sw.WriteLine($"Address: {address}");
 
                 sw.WriteLine();
