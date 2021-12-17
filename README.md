@@ -6,8 +6,8 @@ You can specify a wallet in any form of Bitcoin addresses: **Legacy**, **Native 
 Probability to hit the correct private key of at least a single Bitcoin wallet is low, but your chances will increase dramatically if you specify millions of wallets in your file.
 Don't forget to include only the wallets with balance.
 
-If you get lucky to crack at least a single wallet or just want to support this app, don't hesitate to thank me at this BTC wallet:
-**3Gf3V4uztpQgdnxqnFQvRJyx4UjqcXUokf**
-I would be very grateful for your donations!
+If you get lucky to crack at least a single wallet or just want to support this app, don't hesitate to donate at this BTC wallet:
+ **3Gf3V4uztpQgdnxqnFQvRJyx4UjqcXUokf**  
 
+I would be very grateful for your donations!  
 Good luck!
