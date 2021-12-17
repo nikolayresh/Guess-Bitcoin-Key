@@ -18,7 +18,7 @@ namespace GuessBitcoinKey
         private const string FoundFile = "Found.txt";
         // you can set your own priority type here
         private const ScriptPubKeyType PriorityType = ScriptPubKeyType.SegwitP2SH;
-        private static readonly object FileLock = new();
+        private static readonly object FileLocker = new();
         // ReSharper disable once InconsistentNaming
         private static ulong KeysCounter;
 
@@ -218,7 +218,7 @@ namespace GuessBitcoinKey
             int remainder = Environment.ProcessorCount - addressTypes.Sum(x => x.Threads);
             while (remainder-- != 0)
             {
-                HandlePriorityThreads(addressTypes);
+                HandleRemainderThreads(addressTypes);
             }
 
             int iType = 0;
@@ -235,13 +235,13 @@ namespace GuessBitcoinKey
             });
         }
 
-        private static void HandlePriorityThreads(IReadOnlyList<AddressType> addressTypes, int? index = null)
+        private static void HandleRemainderThreads(IReadOnlyList<AddressType> addressTypes, int index = -1)
         {
             AddressType type;
 
-            if (index != null)
+            if (index !=  -1)
             {
-                type = addressTypes[index.Value];
+                type = addressTypes[index];
                 type.Threads++;
                 return;
             }
@@ -254,8 +254,8 @@ namespace GuessBitcoinKey
                 return;
             }
 
-            // recursive call with random index
-            HandlePriorityThreads(addressTypes, RandomNumberGenerator.GetInt32(0, addressTypes.Count));
+            // recursive call with a random index
+            HandleRemainderThreads(addressTypes, RandomNumberGenerator.GetInt32(0, addressTypes.Count));
         }
 
         private int GetWalletsCount(ScriptPubKeyType type)
@@ -343,7 +343,7 @@ namespace GuessBitcoinKey
 
         private static void SavePrivateKey(Key key, Mnemonic mnemonic, BitcoinAddress address)
         {
-            lock (FileLock)
+            lock (FileLocker)
             {
                 while (true)
                 {
