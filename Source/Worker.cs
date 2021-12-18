@@ -155,13 +155,13 @@ namespace GuessBitcoinKey
             }
         }
 
-        private void CreateThreadsEvenlyAndRun(IReadOnlyList<ScriptPubKeyType> types)
+        private void CreateThreadsEvenlyAndRun(IReadOnlyList<ScriptPubKeyType> partitions)
         {
-            int threads = Environment.ProcessorCount / types.Count;
+            int threads = Environment.ProcessorCount / partitions.Count;
 
             for (int iTask = 0; iTask < Environment.ProcessorCount; iTask++)
             {
-                Action action = ResolveThreadAction(types[iTask / threads]);
+                Action action = ResolveThreadAction(partitions[iTask / threads]);
                 Task task = new(action, TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness);
                 _tasks[iTask] = task;
                 task.Start();
