@@ -237,16 +237,13 @@ namespace GuessBitcoinKey
 
         private static void HandleRemainderThreads(IReadOnlyList<AddressType> addressTypes, int index = -1)
         {
-            AddressType type;
-
             if (index != -1)
             {
-                type = addressTypes[index];
-                type.Threads++;
+                addressTypes[index].Threads++;
                 return;
             }
 
-            type = addressTypes.SingleOrDefault(x => x.Type == PriorityType);
+            AddressType type = addressTypes.SingleOrDefault(x => x.Type == PriorityType);
 
             if (type != null)
             {
