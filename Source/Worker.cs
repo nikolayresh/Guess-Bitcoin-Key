@@ -18,7 +18,7 @@ namespace GuessBitcoinKey
         private const string FoundFile = "Found.txt";
         // you can set your own priority type here
         private const ScriptPubKeyType PriorityType = ScriptPubKeyType.SegwitP2SH;
-        private static readonly object FileLocker = new();
+        private static readonly object FileLock = new();
         // ReSharper disable once InconsistentNaming
         private static ulong KeysCounter;
 
@@ -209,10 +209,10 @@ namespace GuessBitcoinKey
         {
             int wallets = _legacyWallets.Count + _segwitNativeWallets.Count + _segwitWallets.Count;
 
-            List<AddressType> addressTypes = types.Select(type => new AddressType
+            List<AddressType> addressTypes = types.Select((type, index) => new AddressType
             {
                 Type = type,
-                Threads = (int) Math.Floor(Environment.ProcessorCount * ((double) GetWalletsCount(type) / wallets))
+                Threads = 1 + (int) Math.Floor((Environment.ProcessorCount - index - 1) * GetWalletsCount(type) / (double) wallets)
             }).ToList();
 
             int remainder = Environment.ProcessorCount - addressTypes.Sum(x => x.Threads);
@@ -340,25 +340,25 @@ namespace GuessBitcoinKey
 
         private static void SavePrivateKey(Key key, Mnemonic mnemonic, BitcoinAddress address)
         {
-            lock (FileLocker)
+            lock (FileLock)
             {
                 while (true)
                 {
                     try
                     {
-                        WriteToFile(key, mnemonic, address);
+                        WriteKeyToFile(key, mnemonic, address);
                         break;
                     }
                     catch
                     {
-                        // ReSharper disable once RedundantJumpStatement
-                        continue;
+                        // wait a bit until file is ready
+                        Thread.Sleep(TimeSpan.FromSeconds(5));
                     }
                 }
             }
         }
 
-        private static void WriteToFile(Key key, Mnemonic mnemonic, BitcoinAddress address)
+        private static void WriteKeyToFile(Key key, Mnemonic mnemonic, BitcoinAddress address)
         {
             using (StreamWriter sw = File.AppendText(Path.Combine(AppContext.BaseDirectory, FoundFile)))
             {
