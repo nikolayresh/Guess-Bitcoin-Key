@@ -366,7 +366,6 @@ namespace GuessBitcoinKey
                    sw.WriteLine($">>> HEX: {key.ToHex()}");
                    sw.WriteLine($">>> WIF (Main): {key.GetBitcoinSecret(Network.Main).ToWif()}");
                    sw.WriteLine($">>> WIF (TestNet): {key.GetBitcoinSecret(Network.TestNet).ToWif()}");
-                   sw.WriteLine($">>> WIF (RegTest): {key.GetBitcoinSecret(Network.RegTest).ToWif()}");
                 sw.WriteLine($"Mnemonic words: [{mnemonic}]");
                 sw.WriteLine($"Address: {address}");
 
