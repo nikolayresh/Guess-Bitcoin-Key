@@ -205,14 +205,14 @@ namespace GuessBitcoinKey
             CreateComplexThreadsAndRun(partitions);
         }
 
-        private void CreateComplexThreadsAndRun(IEnumerable<ScriptPubKeyType> types)
+        private void CreateComplexThreadsAndRun(IEnumerable<ScriptPubKeyType> partitions)
         {
             int wallets = _legacyWallets.Count + _segwitNativeWallets.Count + _segwitWallets.Count;
 
-            List<AddressType> addressTypes = types.Select((type, index) => new AddressType
+            List<AddressType> addressTypes = partitions.Select(type => new AddressType
             {
                 Type = type,
-                Threads = 1 + (int) Math.Floor((Environment.ProcessorCount - index - 1) * GetWalletsCount(type) / (double) wallets)
+                Threads = Math.Clamp((int) Math.Floor(Environment.ProcessorCount * GetWalletsCount(type) / (double) wallets), 1, Environment.ProcessorCount)
             }).ToList();
 
             int remainder = Environment.ProcessorCount - addressTypes.Sum(x => x.Threads);
