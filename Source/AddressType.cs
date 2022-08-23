@@ -2,7 +2,7 @@
 
 namespace GuessBitcoinKey
 {
-    internal class AddressType
+	internal sealed class AddressType
     {
         public ScriptPubKeyType Type { get; init; }
 

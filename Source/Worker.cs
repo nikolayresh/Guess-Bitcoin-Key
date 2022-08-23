@@ -233,16 +233,16 @@ namespace GuessBitcoinKey
             }
 
             int iType = 0;
-            addressTypes.ForEach(x =>
+            addressTypes.ForEach(at =>
             {
-                for (int i = 0; i < x.Threads; i++)
+                for (int i = 0; i < at.Threads; i++)
                 {
-                    Task task = new(ResolveThreadAction(x.Type), TaskCreationOptions.LongRunning);
+                    Task task = new Task(ResolveThreadAction(at.Type), TaskCreationOptions.LongRunning);
                     _tasks[iType + i] = task;
                     task.Start();
                 }
 
-                iType += x.Threads;
+                iType += at.Threads;
             });
         }
 
