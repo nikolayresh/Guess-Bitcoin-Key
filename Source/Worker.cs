@@ -160,7 +160,7 @@ namespace GuessBitcoinKey
         {
             for (int iTask = 0; iTask < _tasks.Length; iTask++)
             {
-                Task task = new(CommonRunner, TaskCreationOptions.LongRunning);
+                Task task = new Task(CommonRunner, TaskCreationOptions.LongRunning);
                 _tasks[iTask] = task;
                 task.Start();
             }
