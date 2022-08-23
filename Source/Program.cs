@@ -3,8 +3,10 @@ using Microsoft.Extensions.Hosting;
 
 namespace GuessBitcoinKey
 {
-    public class Program
+	public class Program
     {
+		public const string ServiceName = "Guess Bitcoin Key";
+
         public static void Main(string[] args)
         {
             CreateHostBuilder(args).Build().Run();
@@ -14,7 +16,7 @@ namespace GuessBitcoinKey
             Host.CreateDefaultBuilder(args)
             .UseWindowsService(options =>
             {
-                options.ServiceName = "Guess Bitcoin Key";
+                options.ServiceName = ServiceName;
             }).ConfigureServices((_, services) =>
                 {
                     services.AddHostedService<Worker>();

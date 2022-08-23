@@ -11,8 +11,10 @@ using System.Threading.Tasks;
 
 namespace GuessBitcoinKey
 {
-    public class Worker : BackgroundService
+	public class Worker : BackgroundService
     {
+        private const int ScanRange = (1 << 20) + 1;
+        private const int EntropyLength = 16;
         private static readonly TimeSpan NotifyPeriod = TimeSpan.FromMinutes(30);
         private const string WalletsFile = "Wallets.txt";
         private const string FoundFile = "Found.txt";
@@ -20,12 +22,12 @@ namespace GuessBitcoinKey
         private const ScriptPubKeyType PriorityType = ScriptPubKeyType.SegwitP2SH;
         private static readonly object FileLock = new();
         // ReSharper disable once InconsistentNaming
-        private static ulong KeysCounter;
+        private static ulong ProgressTracker;
 
         private Task[] _tasks;
         private CancellationTokenSource _cts;
         private HashSet<string> _legacyWallets;
-        private HashSet<string> _segwitNativeWallets;
+        private HashSet<string> _nativeSegwitWallets;
         private HashSet<string> _segwitWallets;
 
         public override Task StartAsync(CancellationToken cancellationToken)
@@ -39,26 +41,28 @@ namespace GuessBitcoinKey
 
         private void Initialize()
         {
-            RandomUtils.Random = new SecureRandom();
-            RandomUtils.UseAdditionalEntropy = false;
+            ProgressTracker = 0UL;
 
             _cts = new CancellationTokenSource();
             _tasks = new Task[Environment.ProcessorCount];
 
             _legacyWallets = new HashSet<string>();
-            _segwitNativeWallets = new HashSet<string>();
+            _nativeSegwitWallets = new HashSet<string>();
             _segwitWallets = new HashSet<string>();
         }
 
         private void ReadWallets()
         {
-            using (StreamReader sr = File.OpenText(Path.Combine(AppContext.BaseDirectory, WalletsFile)))
+            using (StreamReader file = File.OpenText(Path.Combine(AppContext.BaseDirectory, WalletsFile)))
             {
                 string wallet;
-                while ((wallet = sr.ReadLine()) != null)
+                while ((wallet = file.ReadLine()) != null)
                 {
                     wallet = wallet.Trim();
-                    if (wallet.Length == 0) continue;
+                    if (wallet.Length == 0)
+					{
+                        continue;
+					}
 
                     if (wallet.StartsWith("3"))
                     {
@@ -68,16 +72,19 @@ namespace GuessBitcoinKey
 
                     if (wallet.StartsWith("bc1"))
                     {
-                        _segwitNativeWallets.Add(wallet);
+                        _nativeSegwitWallets.Add(wallet);
                         continue;
                     }
 
-                    _legacyWallets.Add(wallet);
+                    if (wallet.StartsWith("1"))
+                    {
+                        _legacyWallets.Add(wallet);
+                    }
                 }
             }
 
-            int wallets = _legacyWallets.Count + _segwitNativeWallets.Count + _segwitWallets.Count;
-            WriteToEventLog($"Total count of wallets: {wallets:N0}");
+            int wallets = _legacyWallets.Count + _nativeSegwitWallets.Count + _segwitWallets.Count;
+            WriteToEventLog($">>> Count of wallets loaded: {wallets:N0}");
         }
 
         private ScriptPubKeyType[] CalculatePartitions()
@@ -89,7 +96,7 @@ namespace GuessBitcoinKey
                 partitions.Add(ScriptPubKeyType.Legacy);
             }
 
-            if (_segwitNativeWallets.Count > 0)
+            if (_nativeSegwitWallets.Count > 0)
             {
                 partitions.Add(ScriptPubKeyType.Segwit);
             }
@@ -106,50 +113,54 @@ namespace GuessBitcoinKey
         {
             CancellationToken ct = _cts.Token;
 
-            Mnemonic mnemonic;
-            BitcoinAddress address;
-            Key key;
-
             while (!ct.IsCancellationRequested)
             {
-                Interlocked.Increment(ref KeysCounter);
+                byte[] entropy = RandomGenerator.GetNextBytes(EntropyLength);
 
-                mnemonic = new Mnemonic(Wordlist.English, WordCount.Twelve);
-                key = mnemonic.DeriveExtKey().PrivateKey;
-                
-                // Legacy
-                address = key.GetAddress(ScriptPubKeyType.Legacy, Network.Main);
-                if (_legacyWallets.Contains(address.ToString()))
-                {
-                    WriteToEventLog($"You won the lottery! Private key has been found for address: {address}");
-                    SavePrivateKey(key, mnemonic, address);
-                    continue;
-                }
+                Mnemonic mnemonic;
+                BitcoinAddress address;
+                Key key;
 
-                // Native Segwit
-                address = key.GetAddress(ScriptPubKeyType.Segwit, Network.Main);
-                if (_segwitNativeWallets.Contains(address.ToString()))
-                {
-                    WriteToEventLog($"You won the lottery! Private key has been found for address: {address}");
-                    SavePrivateKey(key, mnemonic, address);
-                    continue;
-                }
+                for (int i = 0; i < ScanRange && !ct.IsCancellationRequested; i++)
+				{
+                    mnemonic = new Mnemonic(Wordlist.English, entropy);
+                    key = mnemonic.DeriveExtKey().PrivateKey;
 
-                // Segwit
-                address = key.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main);
-                if (_segwitWallets.Contains(address.ToString()))
-                {
-                    WriteToEventLog($"You won the lottery! Private key has been found for address: {address}");
-                    SavePrivateKey(key, mnemonic, address);
+                    // Legacy
+                    address = key.GetAddress(ScriptPubKeyType.Legacy, Network.Main);
+                    if (_legacyWallets.Contains(address.ToString()))
+					{
+                        SavePrivateKey(key, mnemonic, address);
+                        WriteToEventLog($">>> Private key has been found! HEX: {key.ToHex()}");
+					}
+
+                    // Native Segwit
+                    address = key.GetAddress(ScriptPubKeyType.Segwit, Network.Main);
+                    if (_nativeSegwitWallets.Contains(address.ToString()))
+                    {
+                        SavePrivateKey(key, mnemonic, address);
+                        WriteToEventLog($">>> Private key has been found! HEX: {key.ToHex()}");
+                    }
+
+                    // Segwit
+                    address = key.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main);
+                    if (_segwitWallets.Contains(address.ToString()))
+                    {
+                        SavePrivateKey(key, mnemonic, address);
+                        WriteToEventLog($">>> Private key has been found! HEX: {key.ToHex()}");
+                    }
+
+                    Interlocked.Increment(ref ProgressTracker);
+                    entropy.Increment();
                 }
             }
         }
 
         private void CreateCommonThreadsAndRun()
         {
-            for (int iTask = 0; iTask < Environment.ProcessorCount; iTask++)
+            for (int iTask = 0; iTask < _tasks.Length; iTask++)
             {
-                Task task = new(CommonRunner, TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness);
+                Task task = new(CommonRunner, TaskCreationOptions.LongRunning);
                 _tasks[iTask] = task;
                 task.Start();
             }
@@ -159,10 +170,10 @@ namespace GuessBitcoinKey
         {
             int threads = Environment.ProcessorCount / partitions.Count;
 
-            for (int iTask = 0; iTask < Environment.ProcessorCount; iTask++)
+            for (int iTask = 0; iTask < _tasks.Length; iTask++)
             {
                 Action action = ResolveThreadAction(partitions[iTask / threads]);
-                Task task = new(action, TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness);
+                Task task = new Task(action, TaskCreationOptions.LongRunning);
                 _tasks[iTask] = task;
                 task.Start();
             }
@@ -174,7 +185,7 @@ namespace GuessBitcoinKey
             return type switch
             {
                 ScriptPubKeyType.Legacy => LegacyRunner,
-                ScriptPubKeyType.Segwit => SegwitNativeRunner,
+                ScriptPubKeyType.Segwit => NativeSegwitRunner,
                 ScriptPubKeyType.SegwitP2SH => SegwitRunner,
                 _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
             };
@@ -207,7 +218,7 @@ namespace GuessBitcoinKey
 
         private void CreateComplexThreadsAndRun(IEnumerable<ScriptPubKeyType> partitions)
         {
-            int wallets = _legacyWallets.Count + _segwitNativeWallets.Count + _segwitWallets.Count;
+            int wallets = _legacyWallets.Count + _nativeSegwitWallets.Count + _segwitWallets.Count;
 
             List<AddressType> addressTypes = partitions.Select(type => new AddressType
             {
@@ -226,7 +237,7 @@ namespace GuessBitcoinKey
             {
                 for (int i = 0; i < x.Threads; i++)
                 {
-                    Task task = new(ResolveThreadAction(x.Type), TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness);
+                    Task task = new(ResolveThreadAction(x.Type), TaskCreationOptions.LongRunning);
                     _tasks[iType + i] = task;
                     task.Start();
                 }
@@ -260,7 +271,7 @@ namespace GuessBitcoinKey
             return type switch
             {
                 ScriptPubKeyType.Legacy => _legacyWallets.Count,
-                ScriptPubKeyType.Segwit => _segwitNativeWallets.Count,
+                ScriptPubKeyType.Segwit => _nativeSegwitWallets.Count,
                 ScriptPubKeyType.SegwitP2SH => _segwitWallets.Count,
                 _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
             };
@@ -270,46 +281,58 @@ namespace GuessBitcoinKey
         {
             CancellationToken ct = _cts.Token;
 
-            Mnemonic mnemonic;
-            BitcoinAddress address;
-            Key key;
-
             while (!ct.IsCancellationRequested)
             {
-                Interlocked.Increment(ref KeysCounter);
+                byte[] entropy = RandomGenerator.GetNextBytes(EntropyLength);
 
-                mnemonic = new Mnemonic(Wordlist.English, WordCount.Twelve);
-                key = mnemonic.DeriveExtKey().PrivateKey;
-                address = key.GetAddress(ScriptPubKeyType.Legacy, Network.Main);
+                Mnemonic mnemonic;
+                BitcoinAddress address;
+                Key key;
 
-                if (_legacyWallets.Contains(address.ToString()))
-                {
-                    WriteToEventLog($"You won the lottery! Private key has been found for address: {address}");
-                    SavePrivateKey(key, mnemonic, address);
-                }
+                for (int i = 0; i < ScanRange && !ct.IsCancellationRequested; i++)
+				{
+                    mnemonic = new Mnemonic(Wordlist.English, entropy);
+                    key = mnemonic.DeriveExtKey().PrivateKey;
+                    address = key.GetAddress(ScriptPubKeyType.Legacy, Network.Main);
+
+                    if (_legacyWallets.Contains(address.ToString()))
+					{
+                        SavePrivateKey(key, mnemonic, address);
+                        WriteToEventLog($">>> Private key has been found! HEX: {key.ToHex()}");
+					}
+
+                    Interlocked.Increment(ref ProgressTracker);
+                    entropy.Increment();
+				}
             }
         }
 
-        private void SegwitNativeRunner()
+        private void NativeSegwitRunner()
         {
             CancellationToken ct = _cts.Token;
 
-            Mnemonic mnemonic;
-            BitcoinAddress address;
-            Key key;
-
             while (!ct.IsCancellationRequested)
             {
-                Interlocked.Increment(ref KeysCounter);
+                byte[] entropy = RandomGenerator.GetNextBytes(EntropyLength);
 
-                mnemonic = new Mnemonic(Wordlist.English, WordCount.Twelve);
-                key = mnemonic.DeriveExtKey().PrivateKey;
-                address = key.GetAddress(ScriptPubKeyType.Segwit, Network.Main);
+                Mnemonic mnemonic;
+                BitcoinAddress address;
+                Key key;
 
-                if (_segwitNativeWallets.Contains(address.ToString()))
+                for (int i = 0; i < ScanRange && !ct.IsCancellationRequested; i++)
                 {
-                    WriteToEventLog($"You won the lottery! Private key has been found for address: {address}");
-                    SavePrivateKey(key, mnemonic, address);
+                    mnemonic = new Mnemonic(Wordlist.English, entropy);
+                    key = mnemonic.DeriveExtKey().PrivateKey;
+                    address = key.GetAddress(ScriptPubKeyType.Segwit, Network.Main);
+
+                    if (_nativeSegwitWallets.Contains(address.ToString()))
+                    {
+                        SavePrivateKey(key, mnemonic, address);
+                        WriteToEventLog($">>> Private key has been found! HEX: {key.ToHex()}");
+                    }
+
+                    Interlocked.Increment(ref ProgressTracker);
+                    entropy.Increment();
                 }
             }
         }
@@ -318,22 +341,28 @@ namespace GuessBitcoinKey
         {
             CancellationToken ct = _cts.Token;
 
-            Mnemonic mnemonic;
-            BitcoinAddress address;
-            Key key;
-
             while (!ct.IsCancellationRequested)
             {
-                Interlocked.Increment(ref KeysCounter);
+                byte[] entropy = RandomGenerator.GetNextBytes(EntropyLength);
 
-                mnemonic = new Mnemonic(Wordlist.English, WordCount.Twelve);
-                key = mnemonic.DeriveExtKey().PrivateKey;
-                address = key.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main);
+                Mnemonic mnemonic;
+                BitcoinAddress address;
+                Key key;
 
-                if (_segwitWallets.Contains(address.ToString()))
+                for (int i = 0; i < ScanRange && !ct.IsCancellationRequested; i++)
                 {
-                    WriteToEventLog($"You won the lottery! Private key has been found for address: {address}");
-                    SavePrivateKey(key, mnemonic, address);
+                    mnemonic = new Mnemonic(Wordlist.English, entropy);
+                    key = mnemonic.DeriveExtKey().PrivateKey;
+                    address = key.GetAddress(ScriptPubKeyType.SegwitP2SH, Network.Main);
+
+                    if (_segwitWallets.Contains(address.ToString()))
+                    {
+                        SavePrivateKey(key, mnemonic, address);
+                        WriteToEventLog($">>> Private key has been found! HEX: {key.ToHex()}");
+                    }
+
+                    Interlocked.Increment(ref ProgressTracker);
+                    entropy.Increment();
                 }
             }
         }
@@ -352,7 +381,7 @@ namespace GuessBitcoinKey
                     catch
                     {
                         // wait a bit until file is ready
-                        Thread.Sleep(TimeSpan.FromSeconds(5));
+                        Thread.Sleep(TimeSpan.FromSeconds(10));
                     }
                 }
             }
@@ -360,28 +389,27 @@ namespace GuessBitcoinKey
 
         private static void WriteKeyToFile(Key key, Mnemonic mnemonic, BitcoinAddress address)
         {
-            using (StreamWriter sw = File.AppendText(Path.Combine(AppContext.BaseDirectory, FoundFile)))
+            using (StreamWriter file = File.AppendText(Path.Combine(AppContext.BaseDirectory, FoundFile)))
             {
-                sw.WriteLine("Private key:");
-                   sw.WriteLine($">>> HEX: {key.ToHex()}");
-                   sw.WriteLine($">>> WIF (Main): {key.GetBitcoinSecret(Network.Main).ToWif()}");
-                   sw.WriteLine($">>> WIF (TestNet): {key.GetBitcoinSecret(Network.TestNet).ToWif()}");
-                sw.WriteLine($"Mnemonic words: [{mnemonic}]");
-                sw.WriteLine($"Address: {address}");
+                file.WriteLine($"Address: {address}");
+                file.WriteLine($"Mnemonic: [{mnemonic}]");
+                file.WriteLine("Private key:");
+                   file.WriteLine($">>> HEX: {key.ToHex()}");
+                   file.WriteLine($">>> WIF: {key.GetBitcoinSecret(Network.Main).ToWif()}");
 
-                sw.WriteLine();
-                sw.Flush();
+                file.WriteLine();
+                file.Flush();
             }
         }
 
         public override Task StopAsync(CancellationToken cancellationToken)
         {
             _cts.Cancel();
-            Task[] activeTasks = _tasks.Where(x => x != null).ToArray();
-            if (activeTasks.Length > 0) Task.WaitAll(activeTasks);
-
-            SecureRandom sr = RandomUtils.Random as SecureRandom;
-            if (sr != null) sr.Drop();
+            Task[] execTasks = _tasks.Where(x => x != null).ToArray();
+            if (execTasks.Length > 0)
+			{
+                Task.WaitAll(execTasks);
+			}
 
             return base.StopAsync(cancellationToken);
         }
@@ -395,21 +423,24 @@ namespace GuessBitcoinKey
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
 
-                ulong keys = Interlocked.Read(ref KeysCounter);
-                WriteToEventLog($"Total count of keys generated so far: {keys:N0}");
+                ulong keys = Interlocked.Read(ref ProgressTracker);
+                WriteToEventLog($">>> Count of keys checked so far: {keys:N0}");
             }
         }
 
         private static void WriteToEventLog(string message)
         {
+#if DEBUG
+            return;
+#endif
             if (!OperatingSystem.IsWindows())
             {
                 return;
             }
 
-            using (EventLog log = new("Application"))
+            using (EventLog log = new EventLog("Application"))
             {
-                log.Source = "Guess Bitcoin Key";
+                log.Source = Program.ServiceName;
                 log.WriteEntry(message, EventLogEntryType.Information);
             }
         }
